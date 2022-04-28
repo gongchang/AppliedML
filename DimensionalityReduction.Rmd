@@ -1,0 +1,164 @@
+---
+title: "Dimensionality Reduction Course"
+author:
+    - name: Zhaojie Zhang
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+
+output:
+  html_document: 
+    code_folding: "hide"
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+In data science, we are often faced with high dimensional data. In order to use high dimensional data in statistical or machine learning models, dimensionality reduction techniques need to be applied. We can reduce the dimensions of the data using methods like PCA or t-SNE to derive new features, or we can apply feature selection and extraction to filter the data. Along the way, differnt ways of visualizationare also going to be applied to demonstrate the applicabilities of the differnt methods and to explore and interpret the data.
+
+The outline of the Dimensionality Reduction course:
+(1) PCA and t-SNE 
+(2) feature selection and feature extraction
+
+# setup the environment
+```{r}
+library(dplyr)
+library(caret)
+library(Rtsne)
+library(ggplot2)
+library(psych)
+library(ggfortify)
+library(textshape)
+```
+
+
+
+# load and explore the data
+## load the data
+```{r}
+data(cars)
+str(cars)
+```
+
+## check the correlation of features
+For example, you can already see the relatively string positive correlations between price and Cylinder,Cadilac and Convertible, and also the relatively strong negative correlation between price and Chevy.
+```{r,fig.height=8}
+pairs.panels(cars,
+             gap = 0,
+             pch=21)
+```
+
+
+# Dimensionality reduction methods
+## PCA
+### Run PCA and print out the summary
+You can see that that the 1st components captures 17.2% of the variance in the data, 2nd component captures 14.7% of the variance in the data ... For this dataset, the first two components together only help to explain only 31.9% of the variance in the data.
+```{r}
+prin_components <- prcomp(cars,
+             center = TRUE,
+            scale. = TRUE)
+summary(prin_components)
+```
+
+
+
+### autoplot of the PCA results
+```{r}
+autoplot(prin_components)
+```
+### You an see the trend of the cars in Price
+```{r}
+autoplot(prin_components,data=cars,size="Price")
+```
+### You an see the trend of the cars in Price and the positive correlation with Cylinder
+```{r}
+cars$Cylinder <- as.factor(as.character(cars$Cylinder))
+autoplot(prin_components,data=cars,size="Price",colour="Cylinder")
+```
+### You an see the trend of the cars in Price and the positive correlation with Cylinder. On top of that, the eigne vectors for all the features are also added as purple arrows, and you can clearly see their directions (and you can clearly see their relationship with Price from their directions)
+```{r}
+autoplot(prin_components,data=cars,size="Price",colour="Cylinder",loadings.colour = 'purple',loadings=TRUE,loadings.label = TRUE, loadings.label.size = 3)
+```
+
+## t-SNE
+### run t-SNE and extract the t-SNE components
+```{r}
+set.seed(1342)
+cars_for_tsne <- cars %>%
+  mutate(CarID=row_number()) 
+tsne_trans <- cars_for_tsne %>%
+  select(where(is.numeric)) %>%
+  column_to_rownames("CarID") %>%
+  scale() %>% 
+  Rtsne()
+
+tsne_df <- tsne_trans$Y %>% 
+  as.data.frame() %>%
+  rename(tsne1="V1",
+         tsne2="V2") %>%
+  mutate(CarID=row_number()) %>%
+  inner_join(cars_for_tsne, by="CarID")
+```
+
+## plot the t-SNE results: a non-linear representation of the data; you can clearly see from this plot, the cluster of cars where there is a pretty good correlation between price and cylinder , as well as clusters that do not have such correlation.
+```{r}
+ggplot(tsne_df,aes(x = tsne1, 
+             y = tsne2,
+             size=Price,
+             color = Cylinder))+
+  geom_point(alpha=0.4)+
+  theme(legend.position="right")
+```
+
+
+# Feature selection and extraction for machine learning modeling
+There are roughly two groups of feature selection methods: wrapper methods and filter methods. 
+
+Wrapper methods evaluate subsets of variables which allows to detect the possible interactions amongst variables.The two main disadvantages of these methods are: 
+(1) The increasing overfitting risk when the number of observations is insufficient.
+(2) The significant computation time when the number of variables is large
+
+Filter type methods select variables regardless of the model. They are based only on general features like the correlation with the variable to predict. Filter methods suppress the least interesting variables. The other variables will be part of a classification or a regression model used to classify or to predict data. These methods are particularly effective in computation time and robust to overfitting.
+
+Below are a couple of examples:
+
+change the Cylinder type back tp numeric for modeling purposes
+```{r}
+cars$Cylinder <- as.numeric(as.character(cars$Cylinder))
+```
+
+
+## wrapper method: recursive feature elimination
+Preliminary conclusions: the top 5 variables (out of 17):
+   Cadillac, Saab, convertible, hatchback, sedan
+```{r}
+set.seed(1342)
+feature_size_list <-  c(1:12) # for a total of 18 predictors, pick 1 to 10 predictors
+
+rfe_ctrl <- rfeControl(functions = lmFuncs,
+                   method = "repeatedcv",
+                   repeats = 5,
+                   verbose = FALSE)
+
+rfe_results <- rfe(cars[,-which(colnames(cars) %in% c("Price"))], cars$Price,
+                 sizes = feature_size_list,
+                 rfeControl = rfe_ctrl)
+
+rfe_results 
+```
+
+
+## filter method: single variate filtering method where the features are pre-screened using simple univariate statistical methods, and then only those that pass the criteria are selected for subsequent modeling.
+
+Preliminary conclusions from the results:
+On average, 14 variables were selected (min = 14, max = 14)
+
+During resampling, the top 5 selected variables (out of a possible 14):
+   Cadillac (100%), Chevy (100%), convertible (100%), coupe (100%), Cruise (100%)
+```{r}
+set.seed(1342)
+filter_Ctrl <- sbfControl(functions = rfSBF, method = "repeatedcv", repeats = 5)
+filter_results <- sbf(cars[,-which(colnames(cars) %in% c("Price"))], cars$Price, sbfControl = filter_Ctrl)
+filter_results
+```
+
+
+
